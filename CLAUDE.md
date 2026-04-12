@@ -510,8 +510,16 @@ Fork-specific files live in `infrastructure/` (not present upstream, merge-confl
 
 ### Infrastructure Directory
 - `infrastructure/sync-secrets.sh` — Infisical → Coolify secret sync
-- `infrastructure/README.md` — operational runbook
+- `infrastructure/backup-mysql.sh` — daily MySQL dump to Hetzner Box + weekly to B2
+- `infrastructure/backup-minio.sh` — daily MinIO mirror to Hetzner Box + weekly to B2
+- `infrastructure/restore-mysql.sh` — disaster recovery restore from backup
+- `infrastructure/setup-backups.sh` — one-time server setup (rclone, mc, cron)
+- `infrastructure/monitor-storage.sh` — disk usage monitoring + Slack alerts
+- `infrastructure/README.md` — operational runbook (backups, Loom migration, upgrade path)
 - `.github/workflows/sync-secrets.yml` — manual sync trigger
+
+### Backups
+Dual-target: Hetzner Storage Box (daily) + Backblaze B2 (weekly off-site). MySQL at 3am, MinIO at 4am, monitoring every 6h. Cron managed via `/etc/cron.d/cap-backups`. Slack alerts on failure or disk > 70%.
 
 ### GitHub Secrets Required
 - `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` / `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET` — Infisical machine identity (Universal Auth)
