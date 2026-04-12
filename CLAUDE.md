@@ -487,3 +487,32 @@ Always format code before completing work:
 - **Rust**: Run `cargo fmt` to format all Rust code with rustfmt
 
 These commands should be run regularly during development and always at the end of a coding session to ensure consistent formatting across the codebase.
+
+## Self-Hosted Deployment (Revido Fork)
+
+### Architecture
+- **Host**: Hetzner CX33 (178.104.68.218) running Coolify at https://coolify.revido.co
+- **Service UUID**: `ls45v38pyyqi74mdl8w0bw2a` (Docker Compose: cap-web, media-server, mysql, minio, minio-setup)
+- **Secrets**: Infisical (https://infisical.revido.co), project `63361c35-8075-49d3-b3b6-1d4ff4b31517`
+- **Production URL**: https://cap.revido.co
+- **S3 (MinIO)**: https://s3.cap.revido.co
+- **Signup restriction**: `CAP_ALLOWED_SIGNUP_DOMAINS=revido.co`
+
+### Secret Sync
+Secrets flow from Infisical → Coolify via `infrastructure/sync-secrets.sh` or the "Sync Secrets" GitHub Action (`workflow_dispatch`). The script reads all Infisical secrets, skips `COOLIFY_*` meta keys, and pushes the rest to Coolify's service-level env var store. The compose handles routing secrets to the right containers.
+
+### Upstream Sync
+```bash
+git remote add upstream https://github.com/CapSoftware/Cap.git
+git fetch upstream && git merge upstream/main
+```
+Fork-specific files live in `infrastructure/` (not present upstream, merge-conflict-free).
+
+### Infrastructure Directory
+- `infrastructure/sync-secrets.sh` — Infisical → Coolify secret sync
+- `infrastructure/README.md` — operational runbook
+- `.github/workflows/sync-secrets.yml` — manual sync trigger
+
+### GitHub Secrets Required
+- `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` / `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET` — Infisical machine identity (Universal Auth)
+- `COOLIFY_API_TOKEN` — Coolify API bearer token
