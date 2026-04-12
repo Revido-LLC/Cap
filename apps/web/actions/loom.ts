@@ -12,11 +12,21 @@ import {
 } from "@cap/database/schema";
 import { buildEnv, NODE_ENV, serverEnv } from "@cap/env";
 import { dub, userIsPro } from "@cap/utils";
+import { S3Buckets } from "@cap/web-backend";
 import type { Organisation } from "@cap/web-domain";
-import { Video } from "@cap/web-domain";
+import { S3Bucket, Video } from "@cap/web-domain";
 import { and, eq } from "drizzle-orm";
+import { Effect, Option } from "effect";
 import { revalidatePath } from "next/cache";
 import { start } from "workflow/api";
+import {
+	getMediaServerUrl,
+	getWebhookUrl,
+	pollMediaServerJob,
+	startMediaServerJob,
+} from "@/lib/media-server-jobs";
+import { runPromise } from "@/lib/server";
+import { canUseWorkflowEngine } from "@/lib/workflow-config";
 import { importLoomVideoWorkflow } from "@/workflows/import-loom-video";
 
 interface LoomUrlResponse {
@@ -228,7 +238,7 @@ export async function importFromLoom({
 	const user = await getCurrentUser();
 	if (!user) return { success: false, error: "Unauthorized" };
 
-	if (!userIsPro(user)) {
+	if (buildEnv.NEXT_PUBLIC_IS_CAP && !userIsPro(user)) {
 		return {
 			success: false,
 			error: "Importing from Loom requires a Cap Pro subscription.",
@@ -348,18 +358,220 @@ export async function importFromLoom({
 			.catch(() => {});
 	}
 
-	await start(importLoomVideoWorkflow, [
-		{
-			videoId,
-			userId: user.id,
-			rawFileKey,
-			bucketId: customBucket?.id ?? null,
-			loomDownloadUrl: downloadUrl,
-			loomVideoId,
-		},
-	]);
+	const importPayload = {
+		videoId,
+		userId: user.id,
+		rawFileKey,
+		bucketId: customBucket?.id ?? null,
+		loomDownloadUrl: downloadUrl,
+		loomVideoId,
+	};
+
+	if (canUseWorkflowEngine()) {
+		await start(importLoomVideoWorkflow, [importPayload]);
+	} else {
+		executeDirectLoomImport(importPayload).catch(async (err) => {
+			console.error("Direct Loom import failed:", err);
+			await db()
+				.update(videoUploads)
+				.set({
+					phase: "error",
+					processingMessage:
+						err instanceof Error ? err.message : "Import failed",
+					updatedAt: new Date(),
+				})
+				.where(eq(videoUploads.videoId, videoId));
+		});
+	}
 
 	revalidatePath("/dashboard/caps");
 
 	return { success: true, videoId };
+}
+
+const MINIMUM_VIDEO_SIZE = 1024;
+
+async function executeDirectLoomImport(payload: {
+	videoId: string;
+	userId: string;
+	rawFileKey: string;
+	bucketId: string | null;
+	loomDownloadUrl: string;
+	loomVideoId: string;
+}): Promise<void> {
+	const { videoId, userId, rawFileKey, bucketId, loomVideoId } = payload;
+
+	await db()
+		.update(videoUploads)
+		.set({
+			phase: "uploading",
+			processingProgress: 0,
+			processingMessage: "Downloading from Loom...",
+			rawFileKey,
+			updatedAt: new Date(),
+		})
+		.where(eq(videoUploads.videoId, videoId as Video.VideoId));
+
+	const freshDownloadUrl = await getLoomDownloadUrl(loomVideoId);
+	if (!freshDownloadUrl) {
+		throw new Error(
+			"Could not retrieve a download URL from Loom. The video may be private or expired.",
+		);
+	}
+
+	const bucketIdOption = Option.fromNullable(bucketId).pipe(
+		Option.map((id) => S3Bucket.S3BucketId.make(id)),
+	);
+
+	if (isStreamingUrl(freshDownloadUrl)) {
+		await db()
+			.update(videoUploads)
+			.set({
+				phase: "processing",
+				processingProgress: 0,
+				processingMessage: "Starting video processing...",
+				updatedAt: new Date(),
+			})
+			.where(eq(videoUploads.videoId, videoId as Video.VideoId));
+
+		await triggerMediaServerProcessing({
+			videoId,
+			userId,
+			rawFileKey,
+			bucketIdOption,
+			sourceVideoUrl: freshDownloadUrl,
+			inputExtension: getInputExtension(freshDownloadUrl),
+		});
+		return;
+	}
+
+	const presignedPutUrl = await Effect.gen(function* () {
+		const [bucket] = yield* S3Buckets.getBucketAccess(bucketIdOption);
+		return yield* bucket.getInternalPresignedPutUrl(rawFileKey, {
+			ContentType: "video/mp4",
+		});
+	}).pipe(runPromise);
+
+	const loomResponse = await fetch(freshDownloadUrl);
+	if (!loomResponse.ok) {
+		throw new Error(
+			`Failed to download from Loom: ${loomResponse.status} ${loomResponse.statusText}`,
+		);
+	}
+
+	const contentType = loomResponse.headers.get("content-type") ?? "";
+	if (
+		contentType.includes("text/html") ||
+		contentType.includes("application/json")
+	) {
+		throw new Error(
+			`Loom returned non-video content (${contentType}). The download URL may have expired.`,
+		);
+	}
+
+	const videoBuffer = Buffer.from(await loomResponse.arrayBuffer());
+	if (videoBuffer.length < MINIMUM_VIDEO_SIZE) {
+		throw new Error(
+			`Downloaded file is too small (${videoBuffer.length} bytes). The video may not be available.`,
+		);
+	}
+
+	const uploadResponse = await fetch(presignedPutUrl, {
+		method: "PUT",
+		body: new Uint8Array(videoBuffer),
+		headers: {
+			"Content-Type": "video/mp4",
+			"Content-Length": videoBuffer.length.toString(),
+		},
+	});
+
+	if (!uploadResponse.ok) {
+		throw new Error(
+			`Failed to upload to S3: ${uploadResponse.status} ${uploadResponse.statusText}`,
+		);
+	}
+
+	await db()
+		.update(videoUploads)
+		.set({
+			phase: "processing",
+			processingProgress: 0,
+			processingMessage: "Starting video processing...",
+			updatedAt: new Date(),
+		})
+		.where(eq(videoUploads.videoId, videoId as Video.VideoId));
+
+	await triggerMediaServerProcessing({
+		videoId,
+		userId,
+		rawFileKey,
+		bucketIdOption,
+	});
+}
+
+function getInputExtension(url: string): string | undefined {
+	const pathname = new URL(url).pathname.toLowerCase();
+	if (pathname.endsWith(".m3u8")) return ".m3u8";
+	if (pathname.endsWith(".mpd")) return ".mpd";
+	if (pathname.endsWith(".mp4")) return ".mp4";
+	return undefined;
+}
+
+async function triggerMediaServerProcessing(opts: {
+	videoId: string;
+	userId: string;
+	rawFileKey: string;
+	bucketIdOption: Option.Option<S3Bucket.S3BucketId>;
+	sourceVideoUrl?: string;
+	inputExtension?: string;
+}): Promise<void> {
+	const { videoId, userId, rawFileKey, bucketIdOption } = opts;
+	const mediaServerUrl = getMediaServerUrl();
+	const webhookUrl = getWebhookUrl();
+
+	const { rawVideoUrl, outputPresignedUrl, thumbnailPresignedUrl } =
+		await Effect.gen(function* () {
+			const [bucket] = yield* S3Buckets.getBucketAccess(bucketIdOption);
+			const outputKey = `${userId}/${videoId}/result.mp4`;
+			const thumbnailKey = `${userId}/${videoId}/screenshot/screen-capture.jpg`;
+
+			const rawVideoUrl = yield* bucket.getInternalSignedObjectUrl(rawFileKey);
+			const outputPresignedUrl = yield* bucket.getInternalPresignedPutUrl(
+				outputKey,
+				{ ContentType: "video/mp4" },
+			);
+			const thumbnailPresignedUrl = yield* bucket.getInternalPresignedPutUrl(
+				thumbnailKey,
+				{ ContentType: "image/jpeg" },
+			);
+
+			return { rawVideoUrl, outputPresignedUrl, thumbnailPresignedUrl };
+		}).pipe(runPromise);
+
+	const videoUrl = opts.sourceVideoUrl ?? rawVideoUrl;
+
+	const jobId = await startMediaServerJob(mediaServerUrl, {
+		videoId,
+		userId,
+		videoUrl,
+		outputPresignedUrl,
+		thumbnailPresignedUrl,
+		webhookUrl,
+		inputExtension: opts.inputExtension,
+	});
+
+	const result = await pollMediaServerJob(mediaServerUrl, jobId);
+
+	await db()
+		.update(videos)
+		.set({
+			width: result.width,
+			height: result.height,
+			duration: result.duration,
+		})
+		.where(eq(videos.id, videoId as Video.VideoId));
+
+	await db()
+		.delete(videoUploads)
+		.where(eq(videoUploads.videoId, videoId as Video.VideoId));
 }

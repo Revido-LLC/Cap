@@ -1,8 +1,19 @@
 import { db } from "@cap/database";
-import { videoUploads } from "@cap/database/schema";
+import { videos, videoUploads } from "@cap/database/schema";
+import { serverEnv } from "@cap/env";
+import { S3Buckets } from "@cap/web-backend";
 import type { S3Bucket, Video } from "@cap/web-domain";
 import { and, eq, ne } from "drizzle-orm";
+import { Effect, Option } from "effect";
 import { start } from "workflow/api";
+import {
+	getMediaServerUrl,
+	getWebhookUrl,
+	pollMediaServerJob,
+	startMediaServerJob,
+} from "@/lib/media-server-jobs";
+import { runPromise } from "@/lib/server";
+import { canUseWorkflowEngine } from "@/lib/workflow-config";
 import { processVideoWorkflow } from "@/workflows/process-video";
 
 export type VideoProcessingStartStatus = "started" | "already-processing";
@@ -118,26 +129,124 @@ export async function startVideoProcessingWorkflow({
 		return status;
 	}
 
-	try {
-		await start(processVideoWorkflow, [
-			{
+	if (canUseWorkflowEngine()) {
+		try {
+			await start(processVideoWorkflow, [
+				{
+					videoId,
+					userId,
+					rawFileKey,
+					bucketId: bucketId as S3Bucket.S3BucketId | null,
+				},
+			]);
+			return "started";
+		} catch (error) {
+			const normalizedError =
+				error instanceof Error
+					? error
+					: new Error("Video processing could not start");
+			await setVideoProcessingError(
 				videoId,
-				userId,
-				rawFileKey,
-				bucketId: bucketId as S3Bucket.S3BucketId | null,
-			},
-		]);
-		return "started";
-	} catch (error) {
-		const normalizedError =
-			error instanceof Error
-				? error
-				: new Error("Video processing could not start");
+				startFailureMessage,
+				normalizedError,
+			);
+			throw normalizedError;
+		}
+	}
+
+	executeDirectVideoProcessing({
+		videoId,
+		userId,
+		rawFileKey,
+		bucketId,
+	}).catch(async (err) => {
+		console.error("[video-processing] Direct processing failed:", err);
 		await setVideoProcessingError(
 			videoId,
 			startFailureMessage,
-			normalizedError,
+			err instanceof Error ? err : new Error(String(err)),
 		);
-		throw normalizedError;
+	});
+
+	return "started";
+}
+
+function getInputExtension(rawFileKey: string): string {
+	const parts = rawFileKey.split(".");
+	const extension = parts.at(-1)?.toLowerCase();
+	if (!extension) return ".mp4";
+	return `.${extension}`;
+}
+
+function getValidDuration(duration: number) {
+	return Number.isFinite(duration) && duration > 0 ? duration : undefined;
+}
+
+async function executeDirectVideoProcessing(opts: {
+	videoId: Video.VideoId;
+	userId: string;
+	rawFileKey: string;
+	bucketId: string | null;
+}): Promise<void> {
+	const { videoId, userId, rawFileKey, bucketId } = opts;
+	const mediaServerUrl = getMediaServerUrl();
+	const webhookUrl = getWebhookUrl();
+	const webhookSecret = serverEnv().MEDIA_SERVER_WEBHOOK_SECRET;
+
+	const bucketIdOption = Option.fromNullable(
+		bucketId as S3Bucket.S3BucketId | null,
+	);
+
+	const { rawVideoUrl, outputPresignedUrl, thumbnailPresignedUrl } =
+		await Effect.gen(function* () {
+			const [bucket] = yield* S3Buckets.getBucketAccess(bucketIdOption);
+			const outputKey = `${userId}/${videoId}/result.mp4`;
+			const thumbnailKey = `${userId}/${videoId}/screenshot/screen-capture.jpg`;
+
+			const rawVideoUrl = yield* bucket.getInternalSignedObjectUrl(rawFileKey);
+			const outputPresignedUrl = yield* bucket.getInternalPresignedPutUrl(
+				outputKey,
+				{ ContentType: "video/mp4" },
+			);
+			const thumbnailPresignedUrl = yield* bucket.getInternalPresignedPutUrl(
+				thumbnailKey,
+				{ ContentType: "image/jpeg" },
+			);
+
+			return { rawVideoUrl, outputPresignedUrl, thumbnailPresignedUrl };
+		}).pipe(runPromise);
+
+	const jobId = await startMediaServerJob(mediaServerUrl, {
+		videoId,
+		userId,
+		videoUrl: rawVideoUrl,
+		outputPresignedUrl,
+		thumbnailPresignedUrl,
+		webhookUrl,
+		webhookSecret: webhookSecret || undefined,
+		inputExtension: getInputExtension(rawFileKey),
+	});
+
+	const metadata = await pollMediaServerJob(mediaServerUrl, jobId);
+	const duration = getValidDuration(metadata.duration);
+
+	await db()
+		.update(videos)
+		.set({
+			width: metadata.width,
+			height: metadata.height,
+			fps: metadata.fps,
+			...(duration === undefined ? {} : { duration }),
+		})
+		.where(eq(videos.id, videoId));
+
+	await db().delete(videoUploads).where(eq(videoUploads.videoId, videoId));
+
+	try {
+		const [bucket] =
+			await S3Buckets.getBucketAccess(bucketIdOption).pipe(runPromise);
+		await bucket.deleteObject(rawFileKey).pipe(runPromise);
+	} catch (error) {
+		console.error("[video-processing] Failed to delete raw upload", error);
 	}
 }

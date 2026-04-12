@@ -28,6 +28,8 @@ services:
       MEDIA_SERVER_URL: http://media-server:3456
       MEDIA_SERVER_WEBHOOK_SECRET: ${MEDIA_SERVER_WEBHOOK_SECRET}
       MEDIA_SERVER_WEBHOOK_URL: http://cap-web:3000
+      PORT: "3000"
+      WORKFLOW_LOCAL_DATA_DIR: /tmp/.workflow-data
     ports:
       - "3000:3000"
     healthcheck:
