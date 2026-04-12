@@ -118,18 +118,33 @@ else
 fi
 
 if [[ "$RESTART" == "true" ]]; then
-  echo "Restarting Coolify service..."
+  echo "Stopping Coolify service..."
 
-  restart_resp=$(curl -s --connect-timeout 10 --max-time 30 -w "\n%{http_code}" -X POST \
-    "${COOLIFY_API_URL}/api/v1/services/${COOLIFY_SERVICE_UUID}/restart" \
+  stop_resp=$(curl -s --connect-timeout 10 --max-time 30 -w "\n%{http_code}" -X POST \
+    "${COOLIFY_API_URL}/api/v1/services/${COOLIFY_SERVICE_UUID}/stop" \
     -H "Authorization: Bearer ${COOLIFY_API_TOKEN}")
 
-  restart_code=$(echo "$restart_resp" | tail -1)
+  stop_code=$(echo "$stop_resp" | tail -1)
 
-  if [[ "$restart_code" -ge 200 && "$restart_code" -lt 300 ]]; then
-    echo "Service restart triggered (HTTP $restart_code)"
+  if [[ "$stop_code" -ge 200 && "$stop_code" -lt 300 ]]; then
+    echo "Service stopped (HTTP $stop_code)"
   else
-    echo "Service restart failed (HTTP $restart_code)"
+    echo "Service stop failed (HTTP $stop_code)"
+    exit 1
+  fi
+
+  echo "Starting Coolify service..."
+
+  start_resp=$(curl -s --connect-timeout 10 --max-time 30 -w "\n%{http_code}" -X POST \
+    "${COOLIFY_API_URL}/api/v1/services/${COOLIFY_SERVICE_UUID}/start" \
+    -H "Authorization: Bearer ${COOLIFY_API_TOKEN}")
+
+  start_code=$(echo "$start_resp" | tail -1)
+
+  if [[ "$start_code" -ge 200 && "$start_code" -lt 300 ]]; then
+    echo "Service started (HTTP $start_code)"
+  else
+    echo "Service start failed (HTTP $start_code)"
     exit 1
   fi
 fi

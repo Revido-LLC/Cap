@@ -236,8 +236,8 @@ create_curl_mock '{"message":"ok"}' "200"
 
 output=$(run_script "--restart") && ec=0 || ec=$?
 assert_exit_code "exits 0 with restart" "0" "$ec"
-assert_contains "reports restart triggered" "restart triggered" "$output"
-assert_file_contains "calls restart endpoint" "restart" "$MOCK_DIR/curl_calls.log"
+assert_contains "reports service stopped" "Service stopped" "$output"
+assert_contains "reports service started" "Service started" "$output"
 echo ""
 
 echo "--- All COOLIFY_* secrets only ---"
