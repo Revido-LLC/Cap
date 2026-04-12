@@ -496,7 +496,7 @@ These commands should be run regularly during development and always at the end 
 - **Secrets**: Infisical (https://infisical.revido.co), project `63361c35-8075-49d3-b3b6-1d4ff4b31517`
 - **Production URL**: https://cap.revido.co
 - **S3 (MinIO)**: https://s3.cap.revido.co
-- **Signup restriction**: `CAP_ALLOWED_SIGNUP_DOMAINS=revido.co`
+- **Signup restriction**: `CAP_ALLOWED_SIGNUP_DOMAINS=revido.io`
 
 ### Secret Sync
 Secrets flow from Infisical → Coolify via `infrastructure/sync-secrets.sh` or the "Sync Secrets" GitHub Action (`workflow_dispatch`). The script reads all Infisical secrets, skips `COOLIFY_*` meta keys, and pushes the rest to Coolify's service-level env var store. The compose handles routing secrets to the right containers.
