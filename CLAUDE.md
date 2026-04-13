@@ -493,10 +493,31 @@ These commands should be run regularly during development and always at the end 
 ### Architecture
 - **Host**: Hetzner CX33 (178.104.68.218) running Coolify at https://coolify.revido.co
 - **Service UUID**: `ls45v38pyyqi74mdl8w0bw2a` (Docker Compose: cap-web, media-server, mysql, minio, minio-setup)
+- **Docker Image**: `ghcr.io/revido-llc/cap-web:latest` (built from fork, NOT upstream)
 - **Secrets**: Infisical (https://infisical.revido.co), project `63361c35-8075-49d3-b3b6-1d4ff4b31517`
 - **Production URL**: https://cap.revido.co
 - **S3 (MinIO)**: https://s3.cap.revido.co
 - **Signup restriction**: `CAP_ALLOWED_SIGNUP_DOMAINS=revido.io`
+
+### CI/CD Pipeline
+Every push to `main` triggers `.github/workflows/deploy-revido-web.yml`:
+1. GitHub Actions builds `apps/web/Dockerfile` (amd64, ~6 min)
+2. Pushes image to `ghcr.io/revido-llc/cap-web:latest` + SHA tag
+3. Calls Coolify API to stop + start the service (pulls new image)
+
+Manual trigger: **Actions → "Deploy Revido Web" → Run workflow**
+
+The media server uses the upstream image (`ghcr.io/capsoftware/cap-media-server:latest`) since it has no fork-specific changes.
+
+### Video Processing (Self-Hosted)
+The upstream Vercel Workflow engine does not work outside Vercel. The fork uses direct execution fallbacks (`apps/web/lib/workflow-config.ts`):
+- `canUseWorkflowEngine()` returns `false` when `VERCEL_DEPLOYMENT_ID` is absent
+- Video processing, transcription, AI generation, and Loom imports run inline as fire-and-forget async tasks
+- Shared media server helpers in `apps/web/lib/media-server-jobs.ts`
+- Processing chain: upload → media server → (client polls) → Deepgram transcription → Groq AI summaries
+- Translation (Dutch → English etc.) works via `translateTranscript()` server action using Groq
+
+Required API keys in Infisical: `DEEPGRAM_API_KEY` (transcription), `GROQ_API_KEY` (AI summaries + translation), `OPENAI_API_KEY` (optional fallback)
 
 ### Secret Sync
 Secrets flow from Infisical → Coolify via `infrastructure/sync-secrets.sh` or the "Sync Secrets" GitHub Action (`workflow_dispatch`). The script reads all Infisical secrets, skips `COOLIFY_*` meta keys, and pushes the rest to Coolify's service-level env var store. The compose handles routing secrets to the right containers.
@@ -506,7 +527,7 @@ Secrets flow from Infisical → Coolify via `infrastructure/sync-secrets.sh` or 
 git remote add upstream https://github.com/CapSoftware/Cap.git
 git fetch upstream && git merge upstream/main
 ```
-Fork-specific files live in `infrastructure/` (not present upstream, merge-conflict-free).
+Fork-specific files live in `infrastructure/` and `.github/workflows/deploy-revido-web.yml` (not present upstream, merge-conflict-free).
 
 ### Infrastructure Directory
 - `infrastructure/sync-secrets.sh` — Infisical → Coolify secret sync
@@ -517,6 +538,7 @@ Fork-specific files live in `infrastructure/` (not present upstream, merge-confl
 - `infrastructure/monitor-storage.sh` — disk usage monitoring + Slack alerts
 - `infrastructure/README.md` — operational runbook (backups, Loom migration, upgrade path)
 - `.github/workflows/sync-secrets.yml` — manual sync trigger
+- `.github/workflows/deploy-revido-web.yml` — CI/CD build + deploy on push to main
 
 ### Backups
 Dual-target: Hetzner Storage Box (daily) + Backblaze B2 (weekly off-site). MySQL at 3am, MinIO at 4am, monitoring every 6h. Cron managed via `/etc/cron.d/cap-backups`. Slack alerts on failure or disk > 70%.
@@ -524,3 +546,4 @@ Dual-target: Hetzner Storage Box (daily) + Backblaze B2 (weekly off-site). MySQL
 ### GitHub Secrets Required
 - `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` / `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET` — Infisical machine identity (Universal Auth)
 - `COOLIFY_API_TOKEN` — Coolify API bearer token
+- `COOLIFY_SERVICE_UUID` — Coolify service UUID for deploy step

@@ -62,6 +62,33 @@ Compose-referenced vars (e.g., `MYSQL_PASSWORD` used as `${MYSQL_PASSWORD:-chang
 
 ---
 
+## CI/CD Pipeline
+
+Every push to `main` triggers the **Deploy Revido Web** workflow (`.github/workflows/deploy-revido-web.yml`):
+
+1. **Build** (~6 min) — builds `apps/web/Dockerfile` on GitHub Actions (amd64)
+2. **Push** — pushes to `ghcr.io/revido-llc/cap-web:latest` + commit SHA tag
+3. **Deploy** — calls Coolify API to stop + start the service, pulling the new image
+
+The docker-compose uses `ghcr.io/revido-llc/cap-web:latest` (fork image), NOT the upstream `ghcr.io/capsoftware/cap-web:latest`. The media server continues using the upstream image.
+
+### Manual deploy
+
+Go to **Actions → "Deploy Revido Web" → Run workflow** on GitHub.
+
+### Required GitHub secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `COOLIFY_API_TOKEN` | Bearer token for Coolify REST API |
+| `COOLIFY_SERVICE_UUID` | Service UUID for the stop/start deploy step |
+
+### Image visibility
+
+The GHCR package `ghcr.io/revido-llc/cap-web` must be **public** for Coolify to pull without auth. Set via: GitHub org → Packages → cap-web → Settings → Danger Zone → Change visibility.
+
+---
+
 ## Automated Backups
 
 Dual-target backup strategy: **Hetzner Storage Box** (daily, fast, same DC) + **Backblaze B2** (weekly, off-provider safety).
@@ -132,14 +159,20 @@ Logs to `/var/log/cap-monitor.log`.
 
 ## Loom Migration Guide
 
-Cap has a Loom import API but it requires the Effect workflow service not included in self-hosted. Use the manual approach below.
+Cap's built-in Loom import now works on self-hosted (via direct execution fallback). Videos are downloaded, processed through the media server, and transcribed automatically.
 
-### For each team member
+### Import via UI (recommended)
+
+1. Go to **https://cap.revido.co/dashboard/caps**
+2. Click the **Import** button and paste a Loom share URL
+3. Cap downloads the video, processes it, generates transcription and AI summary
+
+### For bulk migration (team-wide)
 
 1. Go to **Loom → Settings → My Videos → Request Export**
 2. Loom emails a download link with all videos as MP4s
 3. Open the Cap desktop app (server URL: `https://cap.revido.co`)
-4. Upload each MP4 through the app
+4. Upload each MP4 through the app — processing, transcription, and AI summaries run automatically
 
 ### For individual shared Loom videos
 
@@ -150,7 +183,7 @@ Cap has a Loom import API but it requires the Effect workflow service not includ
 
 ### What to tell the team
 
-> Old Loom videos will stay accessible on Loom (read-only). All new recordings should go through Cap. If you need a specific old Loom video in Cap, download it from Loom and upload it via the Cap app.
+> Old Loom videos will stay accessible on Loom (read-only). All new recordings should go through Cap. You can import existing Loom videos directly from the dashboard — they'll be auto-transcribed and get AI summaries.
 
 ---
 
