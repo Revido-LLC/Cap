@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Option } from "effect";
 import { start } from "workflow/api";
 import { GROQ_MODEL, getGroqClient } from "@/lib/groq-client";
+import { pushToPortal } from "@/lib/portal-push";
 import { runPromise } from "@/lib/server";
 import { canUseWorkflowEngine } from "@/lib/workflow-config";
 import { generateAiWorkflow } from "@/workflows/generate-ai";
@@ -503,5 +504,11 @@ Return ONLY valid JSON.`;
 			.update(videos)
 			.set({ name: aiResult.title })
 			.where(eq(videos.id, videoId));
+	}
+
+	if (process.env.REVIDO_PORTAL_WEBHOOK_URL) {
+		pushToPortal(videoId, userId).catch((err) =>
+			console.error("[portal-push] Failed:", err),
+		);
 	}
 }

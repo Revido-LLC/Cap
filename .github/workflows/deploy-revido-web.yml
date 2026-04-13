@@ -6,7 +6,8 @@ on:
     branches:
       - main
     paths-ignore:
-      - "infrastructure/**"
+      - "infrastructure/*.sh"
+      - "infrastructure/*.md"
       - "**.md"
 
 jobs:
@@ -44,7 +45,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: apps/web/Dockerfile
+          file: infrastructure/Dockerfile.web
           platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ env.REPOSITORY_OWNER }}/cap-web:latest,ghcr.io/${{ env.REPOSITORY_OWNER }}/cap-web:${{ github.sha }}
@@ -56,12 +57,28 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Pull latest image and restart
+      - name: Deploy cap-web container (zero-downtime)
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          SERVER: ${{ secrets.HETZNER_HOST }}
+          SERVICE_UUID: ${{ secrets.COOLIFY_SERVICE_UUID }}
         run: |
-          curl -s -X GET \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            "https://coolify.revido.co/api/v1/services/${{ secrets.COOLIFY_SERVICE_UUID }}/stop"
-          sleep 5
-          curl -s -X GET \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            "https://coolify.revido.co/api/v1/services/${{ secrets.COOLIFY_SERVICE_UUID }}/start"
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+
+          ssh -i ~/.ssh/key -o StrictHostKeyChecking=no "root@${SERVER}" \
+            "set -euo pipefail && \
+             echo 'Pulling new image...' && \
+             docker pull ghcr.io/revido-llc/cap-web:latest && \
+             echo 'Recreating cap-web only (other services stay running)...' && \
+             docker compose -f /data/coolify/services/${SERVICE_UUID}/docker-compose.yml up -d --no-deps --force-recreate cap-web && \
+             echo 'Waiting for health check...' && \
+             for i in \$(seq 1 30); do \
+               STATUS=\$(docker inspect --format='{{.State.Health.Status}}' cap-web-${SERVICE_UUID} 2>/dev/null || echo 'starting'); \
+               if [ \"\$STATUS\" = 'healthy' ]; then echo \"cap-web healthy after \${i}s\"; exit 0; fi; \
+               sleep 1; \
+             done && \
+             echo 'WARNING: cap-web not healthy within 30s' && \
+             docker logs --tail 20 cap-web-${SERVICE_UUID} 2>/dev/null && \
+             exit 1"
