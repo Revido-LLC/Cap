@@ -42,6 +42,7 @@ export const authOptions = (): NextAuthOptions => {
 				GoogleProvider({
 					clientId: serverEnv().GOOGLE_CLIENT_ID!,
 					clientSecret: serverEnv().GOOGLE_CLIENT_SECRET!,
+					allowDangerousEmailAccountLinking: true,
 					authorization: {
 						params: {
 							scope: [
