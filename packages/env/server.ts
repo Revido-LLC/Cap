@@ -148,9 +148,7 @@ function createServerEnv() {
 			REVIDO_WEBHOOK_SECRET: z
 				.string()
 				.optional()
-				.describe(
-					"Bearer token shared with Revido for /api/webhooks/cap auth",
-				),
+				.describe("Bearer token shared with Revido for /api/webhooks/cap auth"),
 
 			/// Ignore
 			NODE_ENV: z.string(),
