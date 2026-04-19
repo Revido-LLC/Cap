@@ -136,6 +136,22 @@ function createServerEnv() {
 					"Base URL for media server webhooks (use host.docker.internal for Docker setups)",
 				),
 
+			/// Revido Portal integration
+			// Forwards completed transcripts to the Revido internal portal
+			// for AI intelligence extraction and surfacing in the ERP timeline.
+			REVIDO_WEBHOOK_URL: z
+				.string()
+				.optional()
+				.describe(
+					"Revido portal webhook URL, e.g. https://revido.co/api/webhooks/cap",
+				),
+			REVIDO_WEBHOOK_SECRET: z
+				.string()
+				.optional()
+				.describe(
+					"Bearer token shared with Revido for /api/webhooks/cap auth",
+				),
+
 			/// Ignore
 			NODE_ENV: z.string(),
 			WORKFLOWS_RPC_URL: z.string().optional(),

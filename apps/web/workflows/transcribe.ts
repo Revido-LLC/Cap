@@ -31,6 +31,7 @@ import {
 } from "@/lib/media-client";
 import { runPromise } from "@/lib/server";
 import { type DeepgramResult, formatToWebVTT } from "@/lib/transcribe-utils";
+import { notifyRevido } from "./notify-revido";
 
 interface TranscribeWorkflowPayload {
 	videoId: string;
@@ -88,6 +89,8 @@ export async function transcribeVideoWorkflow(
 	]);
 
 	await saveTranscription(videoId, userId, videoData.bucketId, transcription);
+
+	await notifyRevido({ videoId, transcription });
 
 	await cleanupTempAudio(videoId, userId, videoData.bucketId);
 
