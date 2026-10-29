@@ -83,7 +83,12 @@ fn rgb_from_rgba(
         let src_row = data.get(src_start..src_end)?;
         let dst_row = rgb.get_mut(dst_start..dst_end)?;
 
-        for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(3)) {
+        for (src, dst) in src_row
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(dst_row.as_chunks_mut::<3>().0.iter_mut())
+        {
             let (r, b) = match order {
                 ChannelOrder::Rgba => (src[0], src[2]),
                 ChannelOrder::Bgra => (src[2], src[0]),
@@ -128,7 +133,12 @@ fn rgba_from_raw(
         let src_row = data.get(src_start..src_end)?;
         let dst_row = rgba.get_mut(dst_start..dst_end)?;
 
-        for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
+        for (src, dst) in src_row
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(dst_row.as_chunks_mut::<4>().0.iter_mut())
+        {
             let (r, b) = match order {
                 ChannelOrder::Rgba => (src[0], src[2]),
                 ChannelOrder::Bgra => (src[2], src[0]),
@@ -1171,4 +1181,25 @@ fn convert_ffmpeg_frame_to_image(frame: &ffmpeg::frame::Video) -> anyhow::Result
 
     RgbImage::from_raw(width as u32, height as u32, img_buffer)
         .ok_or_else(|| anyhow!("Failed to create image buffer"))
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::{ChannelOrder, rgb_from_rgba, rgba_from_raw};
+
+    #[test]
+    fn converts_padded_rows_in_both_channel_orders() {
+        let pixels = [
+            1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 9, 10, 11, 12, 13, 14, 15, 16, 0, 0,
+        ];
+        let rgb = rgb_from_rgba(&pixels, 2, 2, 10, ChannelOrder::Bgra).unwrap();
+        assert_eq!(rgb.into_raw(), [3, 2, 1, 7, 6, 5, 11, 10, 9, 15, 14, 13]);
+        let rgba = rgba_from_raw(&pixels, 2, 2, 10, ChannelOrder::Rgba).unwrap();
+        assert_eq!(
+            rgba.into_raw(),
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        );
+        assert!(rgb_from_rgba(&pixels[..5], 2, 2, 10, ChannelOrder::Bgra).is_none());
+        assert!(rgba_from_raw(&pixels, 2, 2, 7, ChannelOrder::Rgba).is_none());
+    }
 }
