@@ -171,6 +171,14 @@ jobs:
           if ($clangVersion -notmatch '^clang version (1[0-9]|2[01])\.') { throw 'bindgen 0.70 requires LLVM below 22' }
           "LIBCLANG_PATH=$llvmBin" >> $env:GITHUB_ENV
 
+      - name: Select Visual Studio 2026 generator
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # cmake 0.1.54 predates VS 2026 auto-detection; let CMake select it explicitly.
+          if (-not (cmake --help | Select-String -SimpleMatch 'Visual Studio 18 2026')) { throw 'CMake lacks the Visual Studio 2026 generator' }
+          'CMAKE_GENERATOR=Visual Studio 18 2026' >> $env:GITHUB_ENV
+
       - name: Collect workspace Clippy warnings
         run: cargo clippy --workspace --all-features --locked -- -W warnings
 

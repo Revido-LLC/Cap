@@ -126,7 +126,7 @@ pub async fn migrate(app: &AppHandle) -> Result<(), String> {
     };
 
     // Sort by duration descending to pick slowest
-    per_project.sort_by(|a, b| b.1.cmp(&a.1));
+    per_project.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     tracing::info!(
         total_found = total_found,

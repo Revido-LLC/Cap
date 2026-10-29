@@ -26,10 +26,10 @@ fn main() {
                     #[cfg(debug_assertions)]
                     {
                         let msg = event.message.clone().unwrap_or("No message".into());
-                        println!("Sentry captured {}: {}", &event.level, &msg);
-                        println!("-- user: {:?}", &event.user);
-                        println!("-- event tags: {:?}", &event.tags);
-                        println!("-- event contexts: {:?}", &event.contexts);
+                        println!("Sentry captured {}: {}", event.level, msg);
+                        println!("-- user: {:?}", event.user);
+                        println!("-- event tags: {:?}", event.tags);
+                        println!("-- event contexts: {:?}", event.contexts);
                         None
                     }
 
