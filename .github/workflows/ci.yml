@@ -158,6 +158,19 @@ jobs:
         shell: bash
         run: node scripts/setup.js
 
+      - name: Select compatible LLVM for Windows bindings
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvmBin = 'C:\Program Files\LLVM\bin'
+          $clang = Join-Path $llvmBin 'clang.exe'
+          $libclang = Join-Path $llvmBin 'libclang.dll'
+          if (!(Test-Path $clang) -or !(Test-Path $libclang)) { throw 'Compatible LLVM installation is missing' }
+          $clangVersion = & $clang --version | Select-Object -First 1
+          Write-Host $clangVersion
+          if ($clangVersion -notmatch '^clang version (1[0-9]|2[01])\.') { throw 'bindgen 0.70 requires LLVM below 22' }
+          "LIBCLANG_PATH=$llvmBin" >> $env:GITHUB_ENV
+
       - name: Run Clippy
         run: cargo clippy --workspace --all-features --locked -- -D warnings
 
