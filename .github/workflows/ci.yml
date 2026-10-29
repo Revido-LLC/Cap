@@ -161,6 +161,15 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-features --locked -- -D warnings
 
+      - name: Retain FFmpeg bindings on Windows failure
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ffmpeg-bindings
+          path: target/debug/build/ffmpeg-sys-next-*/out/bindings.rs
+          if-no-files-found: ignore
+          retention-days: 3
+
   lint-biome:
     name: Lint (Biome)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true

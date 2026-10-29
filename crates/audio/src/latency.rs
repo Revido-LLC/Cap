@@ -690,10 +690,10 @@ mod macos {
                     latency_secs = AIRPLAY_MIN_LATENCY_SECS;
                 }
             }
-            OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless => {
-                if latency_secs < WIRELESS_MIN_LATENCY_SECS {
-                    latency_secs = WIRELESS_MIN_LATENCY_SECS;
-                }
+            OutputTransportKind::Wireless | OutputTransportKind::ContinuityWireless
+                if latency_secs < WIRELESS_MIN_LATENCY_SECS =>
+            {
+                latency_secs = WIRELESS_MIN_LATENCY_SECS;
             }
             _ => {}
         }

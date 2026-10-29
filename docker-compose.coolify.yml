@@ -83,7 +83,8 @@ services:
 
   minio:
     container_name: cap-minio
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest@sha256:0dab2f9fee1c1139ae8753b5e35bb4461af2a276cfe0923a2504c75a6170bc64
+    user: "0:0"
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -102,7 +103,7 @@ services:
 
   minio-setup:
     container_name: cap-minio-setup
-    image: minio/mc:latest
+    image: cgr.dev/chainguard/minio-client:latest-dev@sha256:3c8a8e5c1d88e308f689bd2706984c0095477cd44dcfc5772a5c617074721eaf
     depends_on:
       minio:
         condition: service_healthy
