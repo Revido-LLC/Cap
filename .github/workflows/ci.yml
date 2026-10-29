@@ -179,9 +179,6 @@ jobs:
           if (-not (cmake --help | Select-String -SimpleMatch 'Visual Studio 18 2026')) { throw 'CMake lacks the Visual Studio 2026 generator' }
           'CMAKE_GENERATOR=Visual Studio 18 2026' >> $env:GITHUB_ENV
 
-      - name: Collect workspace Clippy warnings
-        run: cargo clippy --workspace --all-features --locked -- -W warnings
-
       - name: Run Clippy
         run: cargo clippy --workspace --all-features --locked -- -D warnings
 
