@@ -216,7 +216,7 @@ pub async fn upload_image(
     .await?;
 
     Ok(UploadedItem {
-        link: app.make_app_url(format!("/s/{}", &s3_config.id)).await,
+        link: app.make_app_url(format!("/s/{}", s3_config.id)).await,
         id: s3_config.id,
     })
 }

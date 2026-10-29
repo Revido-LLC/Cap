@@ -110,7 +110,12 @@ pub fn copy_bgra_to_rgba(data: &[u8], stride: usize, width: usize, height: usize
         let src = &row[..row_len];
         let dst = &mut frame_buffer[dst_offset..dst_offset + row_len];
 
-        for (d, s) in dst.chunks_exact_mut(32).zip(src.chunks_exact(32)) {
+        for (d, s) in dst
+            .as_chunks_mut::<32>()
+            .0
+            .iter_mut()
+            .zip(src.as_chunks::<32>().0.iter())
+        {
             d[0] = s[2];
             d[1] = s[1];
             d[2] = s[0];
@@ -147,8 +152,10 @@ pub fn copy_bgra_to_rgba(data: &[u8], stride: usize, width: usize, height: usize
 
         let processed = (row_len / 32) * 32;
         for (d, s) in dst[processed..]
-            .chunks_exact_mut(4)
-            .zip(src[processed..].chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(src[processed..].as_chunks::<4>().0.iter())
         {
             d[0] = s[2];
             d[1] = s[1];
@@ -160,4 +167,27 @@ pub fn copy_bgra_to_rgba(data: &[u8], stride: usize, width: usize, height: usize
     }
 
     frame_buffer
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::copy_bgra_to_rgba;
+
+    #[test]
+    fn copies_padded_rows_and_partial_chunks() {
+        for width in [1, 7, 8, 9, 17] {
+            let stride = width * 4 + 5;
+            let mut data = vec![0u8; stride * 2];
+            let mut expected = Vec::new();
+            for row in 0..2 {
+                for pixel in 0..width {
+                    let offset = row * stride + pixel * 4;
+                    let blue = (row * 20 + pixel) as u8;
+                    data[offset..offset + 4].copy_from_slice(&[blue, 33, 66, 255]);
+                    expected.extend_from_slice(&[66, 33, blue, 255]);
+                }
+            }
+            assert_eq!(copy_bgra_to_rgba(&data, stride, width, 2), expected);
+        }
+    }
 }

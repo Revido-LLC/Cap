@@ -139,7 +139,7 @@ fn convert_32bit_pixel_buffer(
         }
 
         let row = &raw_data[row_start..row_end];
-        for chunk in row.chunks_exact(4) {
+        for chunk in row.as_chunks::<4>().0 {
             match pixel_format {
                 cidre::cv::PixelFormat::_32_BGRA => {
                     rgba_data.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]])

@@ -130,7 +130,7 @@ impl serde::Serialize for ModelID {
     where
         S: serde::Serializer,
     {
-        serializer.collect_str(&format_args!("{}:{}", &self.vid, &self.pid))
+        serializer.collect_str(&format_args!("{}:{}", self.vid, self.pid))
     }
 }
 
@@ -163,7 +163,7 @@ impl TryFrom<String> for ModelID {
 
 impl Display for ModelID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", &self.vid, &self.pid)
+        write!(f, "{}:{}", self.vid, self.pid)
     }
 }
 
